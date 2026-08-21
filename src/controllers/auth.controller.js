@@ -1,11 +1,29 @@
-import {userModel} from "../models/user.model.js";
+import { userModel } from "../models/user.model.js";
 import tokenBlacklistModel from "../models/blacklist.model.js";
 
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
-// Generate Access Token and Refresh Token
+// ============================================================
+// COOKIE OPTIONS
+// ============================================================
+
+const getCookieOptions = () => {
+    const isProduction = process.env.NODE_ENV === "production";
+
+    return {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? "none" : "lax",
+        path: "/",
+    };
+};
+
+// ============================================================
+// GENERATE ACCESS + REFRESH TOKENS
+// ============================================================
+
 const generateAccessAndRefereshTokens = async (userId) => {
     try {
         const user = await userModel.findById(userId);
@@ -35,15 +53,13 @@ const generateAccessAndRefereshTokens = async (userId) => {
     }
 };
 
-/**
- * @name registerUserController
- * @description Register a new user
- * @access Public
- */
+// ============================================================
+// REGISTER
+// ============================================================
+
 const registerUser = asyncHandler(async (req, res) => {
     const { username, email, password } = req.body;
 
-    // Validate required fields
     if (
         [username, email, password].some(
             (field) => !field || field.trim() === ""
@@ -52,7 +68,6 @@ const registerUser = asyncHandler(async (req, res) => {
         throw new ApiError(400, "All fields are required");
     }
 
-    // Check whether user already exists
     const existedUser = await userModel.findOne({
         $or: [{ username }, { email }],
     });
@@ -64,17 +79,15 @@ const registerUser = asyncHandler(async (req, res) => {
         );
     }
 
-    // Create user
     const user = await userModel.create({
         username: username.toLowerCase(),
         email,
         password,
     });
 
-    // Get created user without sensitive fields
-    const createdUser = await userModel.findById(user._id).select(
-        "-password -refreshToken"
-    );
+    const createdUser = await userModel
+        .findById(user._id)
+        .select("-password -refreshToken");
 
     if (!createdUser) {
         throw new ApiError(
@@ -92,93 +105,89 @@ const registerUser = asyncHandler(async (req, res) => {
     );
 });
 
-/**
- * @name loginUserController
- * @description Login a user
- * @access Public
- */
+// ============================================================
+// LOGIN
+// ============================================================
+
 const loginUser = asyncHandler(async (req, res) => {
     const { email, password } = req.body;
 
-    // Validate email
     if (!email) {
         throw new ApiError(400, "Email is required");
     }
 
-    // Validate password
     if (!password) {
         throw new ApiError(400, "Password is required");
     }
 
-    // Find user
     const user = await userModel.findOne({ email });
 
     if (!user) {
         throw new ApiError(404, "User does not exist");
     }
 
-    // Check password
     const isPasswordValid = await user.isPasswordCorrect(password);
 
     if (!isPasswordValid) {
         throw new ApiError(401, "Invalid user credentials");
     }
 
-    // Generate tokens
     const {
         accessToken,
         refreshToken,
     } = await generateAccessAndRefereshTokens(user._id);
 
-    // Get logged-in user without sensitive fields
-    const loggedInUser = await userModel.findById(user._id).select(
-        "-password -refreshToken"
-    );
+    const loggedInUser = await userModel
+        .findById(user._id)
+        .select("-password -refreshToken");
 
-    // Cookie options
-    const options = {
-        httpOnly: true,
-        secure: false, // true in production with HTTPS
-    };
+    const cookieOptions = getCookieOptions();
 
     return res
         .status(200)
-        .cookie("accessToken", accessToken, options)
-        .cookie("refreshToken", refreshToken, options)
+
+        // Access token cookie
+        .cookie(
+            "accessToken",
+            accessToken,
+            cookieOptions
+        )
+
+        // Refresh token cookie
+        .cookie(
+            "refreshToken",
+            refreshToken,
+            cookieOptions
+        )
+
         .json(
             new ApiResponse(
                 200,
                 {
                     user: loggedInUser,
-                    accessToken,
-                    refreshToken,
                 },
                 "User logged in successfully"
             )
         );
 });
 
-/**
- * @name logoutUserController
- * @description
- * Logout user, blacklist access token,
- * remove refresh token from database
- * @access Private
- */
+// ============================================================
+// LOGOUT
+// ============================================================
+
 const logoutUser = asyncHandler(async (req, res) => {
-    // Get access token from cookie or Authorization header
     const token =
         req.cookies?.accessToken ||
         req.header("Authorization")?.replace("Bearer ", "");
 
-    // Add access token to blacklist
+    // Blacklist access token
     if (token) {
         await tokenBlacklistModel.create({
             token,
         });
     }
 
-    // Remove refresh token from user's database record
+    // Remove refresh token from database
     if (req.user?._id) {
         await userModel.findByIdAndUpdate(
             req.user._id,
@@ -193,17 +202,21 @@ const logoutUser = asyncHandler(async (req, res) => {
         );
     }
 
-    // Cookie options
-    const options = {
-        httpOnly: true,
-        secure: false, // true in production with HTTPS
-    };
+    const cookieOptions = getCookieOptions();
 
-    // Clear authentication cookies
     return res
         .status(200)
-        .clearCookie("accessToken", options)
-        .clearCookie("refreshToken", options)
+
+        .clearCookie(
+            "accessToken",
+            cookieOptions
+        )
+
+        .clearCookie(
+            "refreshToken",
+            cookieOptions
+        )
+
         .json(
             new ApiResponse(
                 200,
@@ -213,15 +226,18 @@ const logoutUser = asyncHandler(async (req, res) => {
         );
 });
 
-/**
- * @name getMeController
- * @description Get current logged-in user details
- * @access Private
- */
+// ============================================================
+// GET CURRENT USER
+// ============================================================
+
 const getMe = asyncHandler(async (req, res) => {
-    const user = await userModel.findById(req.user._id).select(
-        "-password -refreshToken"
-    );
+    if (!req.user?._id) {
+        throw new ApiError(401, "Unauthorized request");
+    }
+
+    const user = await userModel
+        .findById(req.user._id)
+        .select("-password -refreshToken");
 
     if (!user) {
         throw new ApiError(404, "User not found");
@@ -240,7 +256,10 @@ const getMe = asyncHandler(async (req, res) => {
     );
 });
 
-// Export controllers
+// ============================================================
+// EXPORT
+// ============================================================
+
 export {
     registerUser,
     loginUser,
