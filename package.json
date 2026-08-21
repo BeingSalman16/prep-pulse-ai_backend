@@ -15,6 +15,7 @@
   "license": "ISC",
   "dependencies": {
     "@google/genai": "^1.42.0",
+    "@sparticuz/chromium": "^149.0.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
@@ -24,7 +25,7 @@
     "mongoose": "^9.2.1",
     "multer": "^2.0.2",
     "pdf-parse": "^2.4.5",
-    "puppeteer": "^24.37.5",
+    "puppeteer-core": "^25.8.0",
     "zod": "^3.25.76",
     "zod-to-json-schema": "^3.25.1"
   }
