@@ -1,7 +1,8 @@
 import { GoogleGenAI } from "@google/genai"
 import { z } from "zod"
 import { zodToJsonSchema } from "zod-to-json-schema"
-import puppeteer from "puppeteer"
+import puppeteer from "puppeteer-core";
+import chromium from "@sparticuz/chromium";
 
 const ai = new GoogleGenAI({
     apiKey: process.env.GOOGLE_GENAI_API_KEY
@@ -55,25 +56,34 @@ async function generateInterviewReport({ resume, selfDescription, jobDescription
 
 }
 
-
-
 async function generatePdfFromHtml(htmlContent) {
-    const browser = await puppeteer.launch()
-    const page = await browser.newPage();
-    await page.setContent(htmlContent, { waitUntil: "networkidle0" })
+    // Render/Production environment flags
+    const browser = await puppeteer.launch({
+        args: chromium.args,
+        defaultViewport: chromium.defaultViewport,
+        executablePath: await chromium.executablePath(),
+        headless: chromium.headless,
+    });
 
-    const pdfBuffer = await page.pdf({
-        format: "A4", margin: {
-            top: "20mm",
-            bottom: "20mm",
-            left: "15mm",
-            right: "15mm"
-        }
-    })
+    try {
+        const page = await browser.newPage();
+        await page.setContent(htmlContent, { waitUntil: "networkidle0" });
 
-    await browser.close()
+        const pdfBuffer = await page.pdf({
+            format: "A4",
+            printBackground: true,
+            margin: {
+                top: "20mm",
+                bottom: "20mm",
+                left: "15mm",
+                right: "15mm",
+            },
+        });
 
-    return pdfBuffer
+        return pdfBuffer;
+    } finally {
+        await browser.close();
+    }
 }
 
 async function generateResumePdfFile({ resume, selfDescription, jobDescription }) {
